@@ -1,4 +1,4 @@
-# Sportz: Real-Time Sports Tracking & Commentary Backend
+# Sportz: Real-Time Sports Tracking & Commentary
 
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-5.2-000000?logo=express&logoColor=white)](https://expressjs.com/)
@@ -6,10 +6,11 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white)](https://neon.tech/)
 [![Arcjet Security](https://img.shields.io/badge/Arcjet-Protected-5E60CE)](https://arcjet.com/)
 [![WebSockets](https://img.shields.io/badge/WebSockets-ws_8.21-0288D1)](https://github.com/websockets/ws)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
 [![Zod Validation](https://img.shields.io/badge/Validation-Zod_4.5-3068b7)](https://zod.dev/)
 [![License: ISC](https://img.shields.io/badge/License-ISC-yellow.svg)](https://opensource.org/licenses/ISC)
 
-A high-performance, real-time sports event tracking and live commentary broadcast engine. Built with an **Express 5** RESTful API, **WebSockets (`ws`)** topic-based pub/sub multiplexer, **Drizzle ORM** on **PostgreSQL (Neon)**, and edge security provided by **Arcjet**.
+A real-time sports event tracking and live commentary platform. The **backend** is an **Express 5** RESTful API with a **WebSocket (`ws`)** server for per-match subscriptions, **Drizzle ORM** on **PostgreSQL (Neon)**, and edge security provided by **Arcjet**. The **frontend** is a **Next.js 16** match centre with live scores, play-by-play commentary and an operator console.
 
 ---
 
@@ -21,10 +22,11 @@ A high-performance, real-time sports event tracking and live commentary broadcas
 - [Project Structure](#project-structure)
 - [Environment Configuration](#environment-configuration)
 - [Quick Start & Migrations](#quick-start--migrations)
+- [Frontend](#frontend)
 - [REST API Reference](#rest-api-reference)
 - [WebSocket Protocol Reference](#websocket-protocol-reference)
 - [Edge Security & Rate Limiting (Arcjet)](#edge-security--rate-limiting-arcjet)
-- [500+ Concurrent User Scalability Guardrails](#500-concurrent-user-scalability-guardrails)
+- [Connection Handling](#connection-handling)
 - [Verification & Smoke Testing](#verification--smoke-testing)
 - [License](#license)
 
@@ -91,7 +93,7 @@ sequenceDiagram
 - **Topic-Based Channel Subscriptions**: Clients subscribe to discrete match feeds (`matchId`). Messages are routed exclusively to active subscribers rather than broadcast indiscriminately.
 - **Global Broadcast Events**: Match creation updates are broadcast instantly across all open connections to keep ticker feeds synchronized.
 - **Strongly Typed Persistence**: Powered by [Drizzle ORM](https://orm.drizzle.team/) with PostgreSQL schemas, custom enums (`match_status`: `scheduled`, `live`, `finished`), and JSONB metadata support.
-- **Dynamic Match Status Resolution**: Match status is calculated based on start/end timestamps via [`src/utils/match-status.js`](file:///n:/Projects/Showcase/sportz/src/utils/match-status.js).
+- **Dynamic Match Status Resolution**: Match status is calculated based on start/end timestamps via [`backend/src/utils/match-status.js`](backend/src/utils/match-status.js).
 - **Automated Validation**: Strict schema validation on parameters, query strings, and payloads via [Zod](https://zod.dev/).
 - **Multi-Vector Bot & DDoS Protection**: Arcjet protects HTTP endpoints and blocks abusive WebSocket handshake spam with sliding-window limits.
 
@@ -102,9 +104,9 @@ sequenceDiagram
 | Layer | Technology | Details |
 |---|---|---|
 | **Runtime & Framework** | [Node.js](https://nodejs.org/) & [Express 5](https://expressjs.com/) | Native ES Modules, Promise-based routing, merged route parameters. |
-| **Real-Time Gateway** | [ws](https://github.com/websockets/ws) | Fast, lightweight WebSocket server initialized via [`attachWebSocketServer`](file:///n:/Projects/Showcase/sportz/src/ws/server.js#L82). |
-| **Database & ORM** | [PostgreSQL (Neon)](https://neon.tech/) & [Drizzle ORM](https://orm.drizzle.team/) | Connection pooling with [`pg.Pool`](file:///n:/Projects/Showcase/sportz/src/db/db.js#L9), zero-overhead SQL querying. |
-| **Security & Rate Limiting** | [@arcjet/node](https://arcjet.com/) | Bot detection, attack shield, and sliding-window rate limiters in [`arcjet.js`](file:///n:/Projects/Showcase/sportz/src/arcjet.js). |
+| **Real-Time Gateway** | [ws](https://github.com/websockets/ws) | Fast, lightweight WebSocket server initialized via [`attachWebSocketServer`](backend/src/ws/server.js#L82). |
+| **Database & ORM** | [PostgreSQL (Neon)](https://neon.tech/) & [Drizzle ORM](https://orm.drizzle.team/) | Connection pooling with [`pg.Pool`](backend/src/db/db.js#L9), zero-overhead SQL querying. |
+| **Security & Rate Limiting** | [@arcjet/node](https://arcjet.com/) | Bot detection, attack shield, and sliding-window rate limiters in [`arcjet.js`](backend/src/arcjet.js). |
 | **Validation Engine** | [Zod](https://zod.dev/) | Strict input validation for query params, URL IDs, and request payloads. |
 
 ---
@@ -113,41 +115,50 @@ sequenceDiagram
 
 ```text
 sportz/
-├── src/
-│   ├── index.js                  # Application entry point, HTTP & WS bootstrap
-│   ├── arcjet.js                 # Arcjet security rules, rate limits & middleware
-│   ├── crud.js                   # Demonstration script for database operations
-│   ├── db/
-│   │   ├── db.js                 # PostgreSQL pool initialization & Drizzle instance
-│   │   └── schema.js             # Tables: matches and commentary + enums
-│   ├── routes/
-│   │   ├── matches.js            # GET & POST /matches
-│   │   └── commentary.js         # GET & POST /matches/:id/commentary
-│   ├── utils/
-│   │   └── match-status.js       # Match status calculation logic
-│   ├── validation/
-│   │   ├── matches.js            # Zod validation schemas for matches
-│   │   └── commentary.js         # Zod validation schemas for commentary
-│   └── ws/
-│       └── server.js             # WebSocket server, topic pub/sub & heartbeat
-├── drizzle/                      # Generated SQL migration files
-├── drizzle.config.js             # Drizzle Kit migration configuration
-├── package.json                  # Scripts and dependencies
-├── .env.example                  # Environment blueprint
-└── README.md                     # Backend system documentation
+├── backend/                          # Express API + WebSocket server
+│   ├── src/
+│   │   ├── index.js                  # Application entry point, HTTP & WS bootstrap
+│   │   ├── arcjet.js                 # Arcjet security rules, rate limits & middleware
+│   │   ├── db/
+│   │   │   ├── db.js                 # PostgreSQL pool initialization & Drizzle instance
+│   │   │   └── schema.js             # Tables: matches and commentary + enums
+│   │   ├── routes/
+│   │   │   ├── matches.js            # GET & POST /matches
+│   │   │   └── commentary.js         # GET & POST /matches/:id/commentary
+│   │   ├── utils/
+│   │   │   └── match-status.js       # Match status calculation logic
+│   │   ├── validation/
+│   │   │   ├── matches.js            # Zod validation schemas for matches
+│   │   │   └── commentary.js         # Zod validation schemas for commentary
+│   │   └── ws/
+│   │       └── server.js             # WebSocket server, topic pub/sub & heartbeat
+│   ├── drizzle/                      # Generated SQL migration files
+│   ├── drizzle.config.js             # Drizzle Kit migration configuration
+│   ├── package.json                  # Backend scripts and dependencies
+│   └── .env.example                  # Backend environment blueprint
+├── frontend/                         # Next.js match centre
+│   ├── src/
+│   │   ├── app/                      # Routes: /, /matches/[id], /console
+│   │   ├── components/               # Dashboard, match centre, console & UI primitives
+│   │   ├── hooks/                    # useMatches, useCommentary, useNow
+│   │   └── lib/                      # API client, types, match/time & event helpers
+│   ├── next.config.ts                # /api/* rewrite proxy to the backend
+│   ├── package.json                  # Frontend scripts and dependencies
+│   └── .env.example                  # Frontend environment blueprint
+└── README.md                         # Project documentation
 ```
 
 ---
 
 ## Environment Configuration
 
-Copy the example file to configure your local environment:
+Copy the example file to configure the backend environment:
 
 ```bash
-cp .env.example .env
+cp backend/.env.example backend/.env
 ```
 
-Define the following environment variables in `.env`:
+Define the following environment variables in `backend/.env`:
 
 ```env
 # PostgreSQL connection string from Neon Console:
@@ -171,13 +182,13 @@ HOST="0.0.0.0"
 ### 1. Install Dependencies
 
 ```bash
-cd n:/Projects/Showcase/sportz
+cd backend
 npm install
 ```
 
 ### 2. Run Database Migrations
 
-Generate SQL schema definitions and apply them to your PostgreSQL database:
+From `backend/`, generate SQL schema definitions and apply them to your PostgreSQL database:
 
 ```bash
 # Generate migration files from src/db/schema.js
@@ -195,6 +206,8 @@ npm run db:studio
 
 ### 3. Launch Development Server
 
+From `backend/`:
+
 ```bash
 npm run dev
 ```
@@ -207,9 +220,48 @@ WebSocket server is running on ws://localhost:8000/ws
 
 ---
 
+## Frontend
+
+The [`frontend/`](frontend/) app is a Next.js 16 (App Router, React 19, Tailwind CSS 4) client for the API above.
+
+| Route | Purpose |
+|---|---|
+| `/` | Match centre: live / upcoming / results with counts, sport filters and search. New fixtures appear instantly. |
+| `/matches/[id]` | Scoreboard with live match clock and a key-moment timeline, a real-time commentary feed (all events / key moments) and per-team event stats. |
+| `/console` | Operator console: create matches (with quick-schedule presets) and publish commentary that is broadcast to every viewer. |
+
+**How it talks to the backend**
+
+- REST calls go to `/api/*`, which [`next.config.ts`](frontend/next.config.ts) rewrites to `BACKEND_URL`. The browser stays same-origin, so the backend needs no CORS configuration.
+- One shared WebSocket ([`realtime-provider.tsx`](frontend/src/components/realtime-provider.tsx)) connects to `NEXT_PUBLIC_WS_URL`, reconnects with exponential backoff, ref-counts match subscriptions and restores them after a reconnect.
+- Match status is derived client-side from `startTime`/`endTime` (same rules as [`match-status.js`](backend/src/utils/match-status.js)), because the stored `status` is only set when a match is created.
+- The API has no single-match endpoint, so `/matches/[id]` looks the match up in `GET /matches?limit=100`.
+
+### Run the frontend
+
+With the backend running on port 8000:
+
+```bash
+cd frontend
+cp .env.example .env.local   # optional, defaults match the backend's defaults
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKEND_URL` | `http://localhost:8000` | Express API that `/api/*` is proxied to (server-side only). |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000/ws` | WebSocket endpoint the browser connects to. |
+
+> Arcjet's `detectBot` rule rejects WebSocket upgrades from automated clients (for example a `HeadlessChrome` user agent), so live updates only connect from regular browsers.
+
+---
+
 ## REST API Reference
 
-### Matches ([`src/routes/matches.js`](file:///n:/Projects/Showcase/sportz/src/routes/matches.js))
+### Matches ([`backend/src/routes/matches.js`](backend/src/routes/matches.js))
 
 #### `GET /matches`
 Retrieve recent matches ordered by creation date.
@@ -253,7 +305,7 @@ Create a new match and trigger a real-time broadcast to all connected WebSocket 
 
 ---
 
-### Commentary ([`src/routes/commentary.js`](file:///n:/Projects/Showcase/sportz/src/routes/commentary.js))
+### Commentary ([`backend/src/routes/commentary.js`](backend/src/routes/commentary.js))
 
 #### `GET /matches/:id/commentary`
 Fetch recent commentary items for a specific match.
@@ -371,7 +423,7 @@ Dispatched only to clients subscribed to that specific `matchId`:
 
 ## Edge Security & Rate Limiting (Arcjet)
 
-Arcjet protects the server against abusive traffic and DDoS attempts in [`src/arcjet.js`](file:///n:/Projects/Showcase/sportz/src/arcjet.js):
+Arcjet protects the server against abusive traffic, bots and request floods in [`backend/src/arcjet.js`](backend/src/arcjet.js):
 
 1. **HTTP Shield & Bot Protection**:
    - `shield({ mode: ARCJET_MODE })`: Inspects requests for common attack vectors.
@@ -384,19 +436,19 @@ Arcjet protects the server against abusive traffic and DDoS attempts in [`src/ar
 
 ---
 
-## 500+ Concurrent User Scalability Guardrails
+## Connection Handling
 
-The architecture includes the following protections to maintain low latency and prevent memory leaks under 500+ concurrent connections:
+Design choices that keep the WebSocket layer lean and leak-free as the number of connections grows (not load-tested yet):
 
 1. **$O(1)$ Subscriber Lookups**:
-   - In [`src/ws/server.js`](file:///n:/Projects/Showcase/sportz/src/ws/server.js#L4), match subscriptions are indexed using a nested `Map<number, Set<WebSocket>>`.
+   - In [`backend/src/ws/server.js`](backend/src/ws/server.js#L4), match subscriptions are indexed using a nested `Map<number, Set<WebSocket>>`.
    - Dispatching commentary looks up only the `Set` for that match, avoiding iteration over unrelated sockets.
 2. **Zombie Socket Pruning**:
-   - An active heartbeat interval runs every 30 seconds (`client.ping()`). Sockets failing to respond with `pong` are automatically terminated via [`socket.terminate()`](file:///n:/Projects/Showcase/sportz/src/ws/server.js#L143).
+   - An active heartbeat interval runs every 30 seconds (`client.ping()`). Sockets failing to respond with `pong` are automatically terminated via [`socket.terminate()`](backend/src/ws/server.js#L143).
 3. **Database Connection Pool**:
-   - Queries are handled through [`pg.Pool`](file:///n:/Projects/Showcase/sportz/src/db/db.js#L9), reusing PostgreSQL connection handles across concurrent REST queries.
+   - Queries are handled through [`pg.Pool`](backend/src/db/db.js#L9), reusing PostgreSQL connection handles across concurrent REST queries.
 4. **Subscription Teardown on Disconnect**:
-   - When a socket closes, [`cleanupSubscriptions(socket)`](file:///n:/Projects/Showcase/sportz/src/ws/server.js#L26) removes it from all subscribed match sets, preventing memory retention.
+   - When a socket closes, [`cleanupSubscriptions(socket)`](backend/src/ws/server.js#L26) removes it from all subscribed match sets, preventing memory retention.
 5. **Horizontal Scaling Path**:
    - For scale across multiple Node.js instances, replace the in-memory `matchSubscribers` map with a Redis Pub/Sub adapter to sync channels across worker nodes.
 
@@ -438,4 +490,4 @@ ws.on('error', (err) => {
 
 ## License
 
-This project is licensed under the [ISC License](file:///n:/Projects/Showcase/sportz/package.json#L16).
+This project is licensed under the ISC License, as declared in [`package.json`](package.json#L16).

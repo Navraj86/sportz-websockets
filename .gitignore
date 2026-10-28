@@ -144,6 +144,4 @@ vite.config.ts.timestamp-*
 
 # Agent skill specs & internal documentation
 docs/
-
-# Experimental frontend (separate feature branch)
-frontend/
+
