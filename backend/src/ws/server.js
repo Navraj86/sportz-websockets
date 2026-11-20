@@ -63,6 +63,7 @@ function handleMessage(socket, data) {
         message = JSON.parse(data.toString());
     } catch {
         sendJson(socket, { type: 'error', message: 'Invalid JSON' });
+        return;
     }
 
     if(message?.type === "subscribe" && Number.isInteger(message.matchId)) {
@@ -86,6 +87,8 @@ export function attachWebSocketServer(server) {
         const { pathname } = new URL(req.url, `http://${req.headers.host}`);
 
         if (pathname !== '/ws') {
+            // Nothing else upgrades on this server: close the socket instead of leaving it open.
+            socket.destroy();
             return;
         }
 

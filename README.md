@@ -1,458 +1,336 @@
-# Sportz: Real-Time Match Commentary & Live Scores
+<div align="center">
 
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20.9-brightgreen.svg)](https://nodejs.org/)
-[![Express](https://img.shields.io/badge/Express-5.2-000000?logo=express&logoColor=white)](https://expressjs.com/)
-[![WebSockets](https://img.shields.io/badge/WebSockets-ws_8.21-0288D1)](https://github.com/websockets/ws)
-[![Drizzle ORM](https://img.shields.io/badge/Drizzle_ORM-0.45-C5F74F?logo=drizzle&logoColor=black)](https://orm.drizzle.team/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white)](https://neon.tech/)
-[![Zod](https://img.shields.io/badge/Validation-Zod_4.5-3068b7)](https://zod.dev/)
-[![Arcjet](https://img.shields.io/badge/Arcjet-Protected-5E60CE)](https://arcjet.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+# ⚡ Sportz
 
-Sportz is a real-time sports platform that pushes live match commentary and new fixtures to every connected viewer the moment they are published.
+**Real-time sports platform: publish a match event once, and every viewer sees it instantly.**
 
-- **Backend:** an Express 5 REST API and a `ws` WebSocket server sharing one HTTP server, with topic-based pub/sub per match, Drizzle ORM on PostgreSQL (Neon), Zod validation and Arcjet protection on WebSocket upgrades.
-- **Frontend:** a Next.js 16 match centre (React 19, Tailwind CSS 4, TypeScript) with live scoreboards, a play-by-play commentary feed and an operator console for publishing events.
+[![CI](https://github.com/Navraj86/sportz-websockets/actions/workflows/ci.yml/badge.svg)](https://github.com/Navraj86/sportz-websockets/actions/workflows/ci.yml)
+![Node.js](https://img.shields.io/badge/Node.js-20.9+-5FA04E?logo=nodedotjs&logoColor=white)
+![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)
+![WebSockets](https://img.shields.io/badge/WebSockets-ws_8-0288D1)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Drizzle_ORM-4169E1?logo=postgresql&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 
----
+<img src=".github/assets/demo.gif" alt="Operator publishes a red card and a save in the console; both appear instantly in a separate viewer's match centre" width="100%">
 
-## Table of Contents
+<sub>Left: an operator publishes commentary. Right: a separate viewer receives it over WebSocket, live, without refreshing.</sub>
 
-- [Architecture](#architecture)
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [Environment Variables](#environment-variables)
-- [REST API Reference](#rest-api-reference)
-- [WebSocket Protocol](#websocket-protocol)
-- [Security (Arcjet)](#security-arcjet)
-- [Connection Handling](#connection-handling)
-- [Smoke Test](#smoke-test)
-- [Roadmap](#roadmap)
-- [License](#license)
+</div>
 
 ---
+
+## What it is
+
+Sportz is a full-stack, real-time match centre. Operators create fixtures and post play-by-play commentary; fans get live scoreboards, a match clock, a key-moment timeline and a commentary feed that updates the instant something happens.
+
+| | |
+|---|---|
+| **Problem** | Live sports UIs are usually built on polling: slow, wasteful, and they scale badly as viewers grow. |
+| **Approach** | One REST write path (validated, persisted in Postgres), then a push to only the sockets subscribed to that match. |
+| **Result** | Events reach viewers as soon as they are saved, with no polling, and the server only does work for viewers who actually follow a match. |
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="33%"><a href=".github/assets/dashboard.png"><img src=".github/assets/dashboard.png" alt="Match centre dashboard"></a></td>
+    <td width="33%"><a href=".github/assets/match-centre.png"><img src=".github/assets/match-centre.png" alt="Live match page"></a></td>
+    <td width="33%"><a href=".github/assets/console.png"><img src=".github/assets/console.png" alt="Operator console"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Match centre</b><br><sub>Live / upcoming / results, sport filter, search. New fixtures pop in live.</sub></td>
+    <td align="center"><b>Live match</b><br><sub>Scoreboard, running clock, key-moment timeline, real-time feed.</sub></td>
+    <td align="center"><b>Operator console</b><br><sub>Create fixtures and publish events with one-click presets.</sub></td>
+  </tr>
+</table>
 
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Clients["Clients"]
-        Web["Next.js frontend<br/>(match centre + operator console)"]
-        Other["Any HTTP / WebSocket client"]
+flowchart LR
+    subgraph Browser
+        UI["Next.js 16 app<br/>React 19 · Tailwind 4"]
     end
 
-    subgraph Next["Next.js server (port 3000)"]
-        Proxy["/api/* rewrite proxy"]
+    subgraph Backend["Node.js process (one HTTP server)"]
+        REST["Express 5 REST API<br/>Zod validation"]
+        AJ["Arcjet<br/>shield · bot · rate limit"]
+        HUB["WebSocket hub<br/>matchId → subscriber sockets"]
     end
 
-    subgraph Backend["Express 5 + ws (port 8000)"]
-        ExpressApp["REST routers<br/>/matches, /matches/:id/commentary"]
-        ArcjetWS["Arcjet on upgrade<br/>shield + bot detection + 5 req / 2s"]
-        WSServer["WebSocket hub (/ws)<br/>Map&lt;matchId, Set&lt;WebSocket&gt;&gt;"]
-    end
+    DB[("PostgreSQL<br/>Drizzle ORM")]
 
-    subgraph Database["Persistence (Neon)"]
-        Drizzle["Drizzle ORM + pg.Pool"]
-        Postgres[("PostgreSQL<br/>matches, commentary")]
-    end
-
-    Web -- "fetch /api/*" --> Proxy --> ExpressApp
-    Other -- "REST" --> ExpressApp
-    Web -- "ws://.../ws" --> ArcjetWS
-    Other -- "ws://.../ws" --> ArcjetWS
-    ArcjetWS --> WSServer
-
-    ExpressApp --> Drizzle --> Postgres
-    ExpressApp -- "broadcastMatchCreated / broadcastCommentary" --> WSServer
-    WSServer -- "JSON frames" --> Web
+    UI -- "fetch /api/* (Next.js rewrite)" --> REST
+    UI <-. "ws /ws (one shared socket)" .-> AJ
+    AJ --> HUB
+    REST --> DB
+    REST -- "broadcast after commit" --> HUB
 ```
 
-### Broadcast flow
+### Life of a live update
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Operator as Operator console
-    participant API as Express (/matches/:id/commentary)
-    participant DB as PostgreSQL (Drizzle)
-    participant Hub as WebSocket hub (/ws)
-    actor Fan as Viewer
+    actor Op as Operator
+    participant API as Express API
+    participant DB as PostgreSQL
+    participant Hub as WS hub
+    actor Fan as Viewer (match 7)
 
-    Fan->>Hub: { "type": "subscribe", "matchId": 42 }
-    Hub-->>Fan: { "type": "subscribed", "matchId": 42 }
-
-    Operator->>API: POST /matches/42/commentary
-    API->>DB: INSERT INTO commentary
-    DB-->>API: persisted row
-    API->>Hub: broadcastCommentary(42, row)
-    Hub->>Fan: { "type": "commentary", "data": { ... } }
-    API-->>Operator: 201 Created
+    Fan->>Hub: subscribe { matchId: 7 }
+    Hub-->>Fan: subscribed
+    Op->>API: POST /matches/7/commentary
+    API->>API: Zod validate
+    API->>DB: INSERT commentary
+    API->>Hub: broadcastCommentary(7, row)
+    Hub-->>Fan: { type: "commentary", data: row }
+    API-->>Op: 201 Created
 ```
 
----
+The database is the source of truth: events are persisted **before** they are broadcast, so a viewer who joins late (or reconnects) loads the same history over REST that live viewers saw over the socket. The client merges that history with anything that arrives on the socket mid-fetch, so no event is lost in between.
 
-## Features
+## Engineering highlights
 
-**Backend**
-
-- **Per-match channels:** clients subscribe to a `matchId` and only receive commentary for the matches they follow.
-- **Global fixture broadcast:** every new match is pushed to all open connections as a `match_created` frame.
-- **Typed schema:** Drizzle ORM tables for `matches` and `commentary`, a `match_status` enum (`scheduled`, `live`, `finished`), plus JSONB `metadata` and `text[]` `tags` on commentary.
-- **Time-based status:** a match's status is computed from `startTime` / `endTime` when it is created ([`match-status.js`](backend/src/utils/match-status.js)).
-- **Validation:** Zod schemas for route params, query strings and request bodies, returning `400` with field-level `details`. `endTime` must be after `startTime`.
-- **Abuse protection:** Arcjet shield, bot detection and a sliding-window rate limit on WebSocket upgrades.
-- **Leak-free sockets:** 30s ping/pong heartbeat, subscription cleanup on close and a 1 MB max payload.
-
-**Frontend**
-
-| Route | What it does |
+| Decision | Why it matters |
 |---|---|
-| `/` | Match centre with Live now / Upcoming / Results sections, status counts, sport filter and search. New fixtures appear instantly with a toast. |
-| `/matches/[id]` | Scoreboard with a live match clock and key-moment timeline, real-time commentary feed (all events or key moments) and per-team event stats. |
-| `/console` | Operator console: create matches with quick-schedule presets (now, in 30 min, tomorrow) and publish commentary using one-click event presets (goal, card, VAR, substitution, and more). |
+| **Topic-based pub/sub** (`Map<matchId, Set<socket>>`) | A commentary broadcast touches only that match's subscribers, and the frame is serialised once, not per client. |
+| **REST for writes, WebSocket for fan-out** | Writes get normal HTTP semantics (status codes, validation errors, retries); the socket stays a lightweight push channel. |
+| **One shared client socket, ref-counted subscriptions** | Many components can follow the same match over a single connection. Subscriptions are restored automatically after a reconnect. |
+| **Resilient reconnects** | Exponential backoff with jitter, plus instant reconnect when the tab becomes visible again or the network comes back. |
+| **Server heartbeat and cleanup** | 30s ping/pong drops dead connections; closed sockets are removed from every match set, so memory does not leak. |
+| **Abuse protection at the edge** | Arcjet checks every WebSocket upgrade (attack shield, bot detection, 5 upgrades / 2s) before the handshake completes. |
+| **Validation everywhere** | Zod schemas for params, queries and bodies return field-level `400`s; incoming socket frames are capped at 1 MB. |
+| **Same-origin frontend** | REST calls go through a Next.js `/api/*` rewrite, so there is no CORS surface to configure. |
 
-- One shared WebSocket connection ([`realtime-provider.tsx`](frontend/src/components/realtime-provider.tsx)) with exponential backoff and jitter, ref-counted subscriptions that are restored after a reconnect, and instant reconnect when the tab or network comes back.
-- REST calls go through a Next.js `/api/*` rewrite to the backend, so the browser stays same-origin and the API needs no CORS setup.
-- Match status is re-derived on the client from `startTime` / `endTime` (same rules as the backend), because the stored `status` is only set at creation.
-- Sport-agnostic event styling: football, cricket, basketball, rugby and more, with aliases like `ht`, `ft`, `sub`, `four`, `six` ([`events.ts`](frontend/src/lib/events.ts)).
+## Tech stack
 
----
-
-## Tech Stack
-
-| Layer | Technology |
+| Layer | Tools |
 |---|---|
-| Runtime | Node.js (ES modules) |
-| API | Express 5 |
-| Real-time | `ws` 8 |
-| Database | PostgreSQL on Neon, `pg` connection pool |
-| ORM & migrations | Drizzle ORM + Drizzle Kit |
-| Validation | Zod 4 |
-| Security | Arcjet (`@arcjet/node`) |
-| Frontend | Next.js 16 (App Router), React 19, TypeScript |
-| Styling & UI | Tailwind CSS 4, lucide-react icons, sonner toasts |
+| Backend | Node.js (ESM), Express 5, `ws` 8, Zod 4, Arcjet |
+| Data | PostgreSQL (Neon in production), Drizzle ORM + Drizzle Kit migrations |
+| Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, lucide-react, sonner |
+| Quality | Vitest (23 tests, including real WebSocket integration tests), ESLint, `tsc`, GitHub Actions |
+| Delivery | Dockerfile + Render Blueprint for the backend, Vercel for the frontend |
 
----
+## Quick start
 
-## Project Structure
-
-```text
-sportz-websockets/
-├── backend/                       # Express API + WebSocket server
-│   ├── src/
-│   │   ├── index.js               # Entry point: HTTP server, routers, WebSocket bootstrap
-│   │   ├── arcjet.js              # Arcjet clients (HTTP + WS) and Express middleware
-│   │   ├── db/
-│   │   │   ├── db.js              # pg Pool + Drizzle instance
-│   │   │   └── schema.js          # matches, commentary tables and match_status enum
-│   │   ├── routes/
-│   │   │   ├── matches.js         # GET / POST /matches
-│   │   │   └── commentary.js      # GET / POST /matches/:id/commentary
-│   │   ├── utils/
-│   │   │   └── match-status.js    # Status from start/end time
-│   │   ├── validation/
-│   │   │   ├── matches.js         # Zod schemas for matches
-│   │   │   └── commentary.js      # Zod schemas for commentary
-│   │   └── ws/
-│   │       └── server.js          # WebSocket hub: pub/sub, heartbeat, Arcjet upgrade check
-│   ├── drizzle/                   # Generated SQL migrations
-│   ├── drizzle.config.js
-│   ├── package.json
-│   └── .env.example
-├── frontend/                      # Next.js match centre
-│   ├── src/
-│   │   ├── app/                   # Routes: /, /matches/[id], /console
-│   │   ├── components/            # Dashboard, match centre, console, realtime provider, UI
-│   │   ├── hooks/                 # useMatches, useCommentary, useNow
-│   │   └── lib/                   # API client, types, match helpers, event styles
-│   ├── next.config.ts             # /api/* rewrite to the backend
-│   ├── package.json
-│   └── .env.example
-└── README.md
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 20.9 or newer (required by Next.js 16)
-- A PostgreSQL database (a free [Neon](https://neon.tech/) project works)
-- An [Arcjet](https://app.arcjet.com) API key (the backend will not start without one)
-
-### 1. Backend
+**Needs:** Node.js 20.9+, a PostgreSQL database, and a free [Arcjet](https://app.arcjet.com) key.
 
 ```bash
+# 1. Backend  (http://localhost:8000, ws://localhost:8000/ws)
 cd backend
-cp .env.example .env        # then fill in DATABASE_URL and ARCJET_KEY
+cp .env.example .env          # set DATABASE_URL and ARCJET_KEY
 npm install
+npm run db:migrate
+npm run dev
 
-npm run db:generate         # generate SQL from src/db/schema.js
-npm run db:migrate          # apply migrations to the database
-npm run db:studio           # optional: browse tables in Drizzle Studio
-
-npm run dev                 # starts with node --watch
-```
-
-```text
-Server is running on http://localhost:8000
-WebSocket server is running on ws://localhost:8000/ws
-```
-
-### 2. Frontend
-
-In a second terminal, with the backend running:
-
-```bash
+# 2. Frontend (http://localhost:3000), in a second terminal
 cd frontend
-cp .env.example .env.local  # optional, defaults point at localhost:8000
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), create a match from `/console`, then open it in another tab to watch commentary arrive live.
+Open **/console**, create a match, then open that match in another window and publish commentary to watch it arrive live.
+
+> **No Postgres handy?** `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=sportz postgres:17-alpine`, then use `DATABASE_URL=postgresql://postgres:dev@localhost:5432/sportz`.
 
 ---
 
-## Environment Variables
+## Reference
 
-### `backend/.env`
+<details>
+<summary><b>REST API</b></summary>
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `DATABASE_URL` | Yes | | PostgreSQL connection string (Neon: Project > Dashboard > Connect). |
-| `ARCJET_KEY` | Yes | | Arcjet API key. The server throws on startup if it is missing. |
-| `ARCJET_MODE` | No | `LIVE` | `LIVE` blocks requests, `DRY_RUN` only logs decisions. |
-| `ARCJET_ENV` | No | | Set to `development` locally so Arcjet allows localhost and private IPs. Remove in production. |
-| `PORT` | No | `8000` | HTTP and WebSocket port. Leave unset on hosts that inject it (Render, Railway, Fly.io). |
-| `HOST` | No | `0.0.0.0` | Bind address. |
+<br>
 
-### `frontend/.env.local`
+Responses are wrapped in `{ "data": ... }`. Validation errors return `400` with `{ "error", "details": [zod issues] }`.
 
-| Variable | Default | Description |
+| Method | Path | Description |
 |---|---|---|
-| `BACKEND_URL` | `http://localhost:8000` | Express API that `/api/*` is proxied to (server-side only). |
-| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000/ws` | WebSocket endpoint the browser connects to. |
+| `GET` | `/matches?limit=50` | Matches, newest first (max 100). |
+| `POST` | `/matches` | Create a match. Status is derived from `startTime` / `endTime`. Broadcasts `match_created` to **all** clients. |
+| `GET` | `/matches/:id/commentary?limit=10` | Commentary for a match, newest first (max 100). |
+| `POST` | `/matches/:id/commentary` | Store an event. Broadcasts `commentary` to **that match's** subscribers. |
 
----
-
-## REST API Reference
-
-All successful responses are wrapped in `{ "data": ... }`. Validation errors return `400` with `{ "error": "...", "details": [ ...zod issues ] }`.
-
-### `GET /matches`
-
-Most recently created matches first.
-
-| Query | Type | Default | Max |
-|---|---|---|---|
-| `limit` | integer | 50 | 100 |
-
-```json
-{
-  "data": [
-    {
-      "id": 1,
-      "sport": "Football",
-      "homeTeam": "Arsenal",
-      "awayTeam": "Chelsea",
-      "status": "live",
-      "startTime": "2026-09-16T10:00:00.000Z",
-      "endTime": "2026-09-16T12:00:00.000Z",
-      "homeScore": 1,
-      "awayScore": 0,
-      "createdAt": "2026-09-16T09:30:00.000Z"
-    }
-  ]
-}
-```
-
-### `POST /matches`
-
-Creates a match, sets its status from the start/end time and broadcasts `match_created` to every connected client. Returns `201` with the created row.
+**Create a match** (`sport`, `homeTeam`, `awayTeam`, `startTime`, `endTime` required; scores default to 0):
 
 ```json
 {
   "sport": "Football",
-  "homeTeam": "Arsenal",
-  "awayTeam": "Chelsea",
-  "startTime": "2026-09-16T10:00:00.000Z",
-  "endTime": "2026-09-16T12:00:00.000Z",
-  "homeScore": 0,
-  "awayScore": 0
+  "homeTeam": "Liverpool",
+  "awayTeam": "Man City",
+  "startTime": "2026-11-20T12:00:00.000Z",
+  "endTime": "2026-11-20T13:52:00.000Z"
 }
 ```
 
-`sport`, `homeTeam`, `awayTeam`, `startTime` and `endTime` (ISO 8601) are required. Scores default to `0`.
-
-### `GET /matches/:id/commentary`
-
-Commentary for one match, newest first.
-
-| Query | Type | Default | Max |
-|---|---|---|---|
-| `limit` | integer | 10 | 100 |
+**Publish commentary** (`minute` and `message` required):
 
 ```json
 {
-  "data": [
-    {
-      "id": 101,
-      "matchId": 1,
-      "minute": 15,
-      "sequence": 1,
-      "period": "1st Half",
-      "eventType": "goal",
-      "actor": "Bukayo Saka",
-      "team": "Arsenal",
-      "message": "Goal! Curling shot into the top corner.",
-      "metadata": null,
-      "tags": null,
-      "createdAt": "2026-09-16T10:15:00.000Z"
-    }
-  ]
-}
-```
-
-### `POST /matches/:id/commentary`
-
-Stores a commentary event and broadcasts it to clients subscribed to that match. Returns `201` with the stored row.
-
-```json
-{
-  "minute": 15,
-  "sequence": 1,
-  "period": "1st Half",
-  "eventType": "goal",
-  "actor": "Bukayo Saka",
-  "team": "Arsenal",
-  "message": "Goal! Curling shot into the top corner.",
-  "metadata": { "assist": "Martin Odegaard" },
+  "minute": 71,
+  "period": "2nd half",
+  "eventType": "red_card",
+  "actor": "Rúben Dias",
+  "team": "Man City",
+  "message": "Straight red! Dias hauls down Núñez as the last man.",
+  "metadata": { "var": false },
   "tags": ["highlight"]
 }
 ```
 
-`minute` (non-negative integer) and `message` are required. Everything else is optional.
+</details>
 
----
+<details>
+<summary><b>WebSocket protocol</b></summary>
 
-## WebSocket Protocol
+<br>
 
-Endpoint: `ws://localhost:8000/ws`
+Endpoint: `ws://<host>/ws`. On connect the server sends `{ "type": "welcome" }`.
 
-On connect the server sends:
-
-```json
-{ "type": "welcome" }
-```
-
-### Client to server
-
-| Message | Server reply |
-|---|---|
-| `{ "type": "subscribe", "matchId": 1 }` | `{ "type": "subscribed", "matchId": 1 }` |
-| `{ "type": "unsubscribe", "matchId": 1 }` | `{ "type": "unsubscribed", "matchId": 1 }` |
-| Anything that is not valid JSON | `{ "type": "error", "message": "Invalid JSON" }` |
-
-`matchId` must be an integer. Other message types are ignored.
-
-### Server to client
-
-| Frame | Sent to | When |
+| Direction | Message | Notes |
 |---|---|---|
-| `{ "type": "match_created", "data": Match }` | All connected clients | After `POST /matches` |
-| `{ "type": "commentary", "data": Commentary }` | Subscribers of `data.matchId` | After `POST /matches/:id/commentary` |
+| Client → server | `{ "type": "subscribe", "matchId": 7 }` | Reply: `{ "type": "subscribed", "matchId": 7 }` |
+| Client → server | `{ "type": "unsubscribe", "matchId": 7 }` | Reply: `{ "type": "unsubscribed", "matchId": 7 }` |
+| Server → all clients | `{ "type": "match_created", "data": Match }` | After `POST /matches` |
+| Server → subscribers | `{ "type": "commentary", "data": Commentary }` | After `POST /matches/:id/commentary` |
+| Server → client | `{ "type": "error", "message": "Invalid JSON" }` | Malformed frame |
 
-`data` is the full database row, in the same shape as the REST responses.
+`data` is the full database row, the same shape the REST API returns.
 
----
+</details>
 
-## Security (Arcjet)
+<details>
+<summary><b>Data model</b></summary>
 
-Rules live in [`backend/src/arcjet.js`](backend/src/arcjet.js) and run in `LIVE` or `DRY_RUN` mode via `ARCJET_MODE`.
+<br>
 
-**WebSocket upgrades (active)**
-
-Every `upgrade` request to `/ws` is checked before the handshake completes:
-
-- `shield`: blocks common attack patterns
-- `detectBot`: blocks automated clients, except search engines and link previews
-- `slidingWindow`: 5 upgrades per 2 seconds per client
-
-Denied requests get `429 Too Many Requests` (rate limit) or `403 Forbidden`, and the socket is destroyed.
-
-> Because of `detectBot`, headless browsers and scripted clients (for example a `HeadlessChrome` user agent) cannot open a live connection. Use a regular browser, or `ARCJET_MODE=DRY_RUN` while testing.
-
-**HTTP routes (available, not enabled)**
-
-`securityMiddleware()` applies `shield`, `detectBot` and a 50 requests / 10 seconds sliding window to REST routes. It is currently commented out in [`backend/src/index.js`](backend/src/index.js). To enable it, uncomment:
-
-```js
-app.use(securityMiddleware());
+```mermaid
+erDiagram
+    MATCHES ||--o{ COMMENTARY : has
+    MATCHES {
+        serial id PK
+        text sport
+        text home_team
+        text away_team
+        match_status status "scheduled | live | finished"
+        timestamp start_time
+        timestamp end_time
+        int home_score
+        int away_score
+        timestamp created_at
+    }
+    COMMENTARY {
+        serial id PK
+        int match_id FK
+        int minute
+        int sequence
+        text period
+        text event_type
+        text actor
+        text team
+        text message
+        jsonb metadata
+        text_array tags
+        timestamp created_at
+    }
 ```
 
----
+</details>
 
-## Connection Handling
+<details>
+<summary><b>Environment variables</b></summary>
 
-1. **O(1) fan-out:** subscriptions are stored in a `Map<matchId, Set<WebSocket>>`, so a commentary broadcast only touches sockets subscribed to that match. Each frame is serialised once per broadcast.
-2. **Heartbeat:** every 30 seconds the server pings each client and terminates any socket that did not answer the previous ping.
-3. **Cleanup on close:** each socket tracks its own subscriptions, and on close it is removed from every match set. Empty sets are deleted.
-4. **Payload limit:** incoming messages are capped at 1 MB.
-5. **Connection pooling:** REST queries share a `pg.Pool`.
+<br>
 
-These are design choices; the server has not been load tested yet.
+**`backend/.env`**
 
----
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Yes | | PostgreSQL connection string |
+| `ARCJET_KEY` | Yes | | Server refuses to start without it |
+| `ARCJET_MODE` | No | `LIVE` | `DRY_RUN` logs decisions instead of blocking (use for scripted/headless clients) |
+| `ARCJET_ENV` | No | | `development` lets Arcjet accept localhost; remove in production |
+| `PORT` / `HOST` | No | `8000` / `0.0.0.0` | Leave `PORT` unset on hosts that inject it |
 
-## Smoke Test
+**`frontend/.env.local`** (optional for local dev)
 
-```javascript
-// smoke-test.mjs  (run from backend/ so the ws package resolves)
-import WebSocket from 'ws';
+| Variable | Default |
+|---|---|
+| `BACKEND_URL` | `http://localhost:8000` (server-side proxy target) |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000/ws` |
 
-const ws = new WebSocket('ws://localhost:8000/ws');
+</details>
 
-ws.on('open', () => ws.send(JSON.stringify({ type: 'subscribe', matchId: 1 })));
+<details>
+<summary><b>Project structure</b></summary>
 
-ws.on('message', (raw) => {
-  const message = JSON.parse(raw.toString());
-  console.log('Received:', message);
+<br>
 
-  if (message.type === 'subscribed') {
-    console.log('Smoke test passed.');
-    ws.close();
-  }
-});
-
-ws.on('error', (err) => {
-  console.error('Smoke test failed:', err.message);
-  process.exit(1);
-});
+```text
+backend/
+  src/
+    index.js            HTTP server: Express routers + WebSocket hub on one port
+    arcjet.js           Arcjet rules for WS upgrades (active) and HTTP (opt-in)
+    ws/server.js        Pub/sub, heartbeat, upgrade protection
+    routes/             /matches, /matches/:id/commentary
+    validation/         Zod schemas
+    db/                 Drizzle schema + pg pool
+  drizzle/              SQL migrations
+  tests/                Vitest: WS integration, status logic, validation
+frontend/
+  src/app/              Routes: /, /matches/[id], /console
+  src/components/       Dashboard, match centre, operator console, realtime provider
+  src/hooks/            useMatches, useCommentary, useNow
+  src/lib/              API client, types, event styles, match helpers
+render.yaml             Render Blueprint for the backend
+.github/workflows/      CI: tests, lint + type check, Docker build
 ```
+
+</details>
+
+<details>
+<summary><b>Testing and CI</b></summary>
+
+<br>
 
 ```bash
-node smoke-test.mjs
+cd backend && npm test
 ```
 
-> With `ARCJET_MODE=LIVE`, Arcjet may treat this script as a bot and reject the upgrade with `403`. Run the backend with `ARCJET_MODE=DRY_RUN` for scripted tests.
+- **`ws-server.test.js`** starts a real HTTP + WebSocket server and connects real clients: per-match isolation (match 1 subscribers never see match 2), unsubscribe, broadcast-to-all, malformed frames, cleanup on disconnect, and rejected upgrades on other paths.
+- **`match-status.test.js`** covers status derivation, including missing or invalid dates.
+- **`validation.test.js`** covers the Zod schemas.
+
+GitHub Actions runs on every push and PR: backend tests, frontend lint + type check, and a Docker image build.
+
+</details>
+
+<details>
+<summary><b>Deployment</b></summary>
+
+<br>
+
+The backend holds WebSocket connections and broadcasts from memory, so it must run as a **long-lived process** (not serverless).
+
+- **Backend:** Render → *New → Blueprint* → this repo (uses [`render.yaml`](render.yaml)), then set `DATABASE_URL` and `ARCJET_KEY`. Any container host works via [`backend/Dockerfile`](backend/Dockerfile).
+- **Frontend:** Vercel, with `BACKEND_URL=https://<backend>` and `NEXT_PUBLIC_WS_URL=wss://<backend>/ws`.
+
+</details>
 
 ---
 
-## Roadmap
+## Current limits and roadmap
 
-- Enable Arcjet on the REST routes
-- Score update endpoint (an `updateScoreSchema` already exists) with a live score broadcast
-- Single-match endpoint (`GET /matches/:id`); the frontend currently finds a match in `GET /matches?limit=100`
-- Periodic status sync so stored `status` follows the clock
-- Redis pub/sub so multiple backend instances can share match channels
+Honest about where this stands today:
 
----
+- **Single instance.** Subscriptions live in process memory. Next step: Redis pub/sub so several backend instances can share match channels.
+- **Scores are set at creation.** A score-update endpoint with a live score broadcast is next (the validation schema already exists).
+- **Stored status is not re-synced.** The client derives status from start/end times; a periodic server-side sync would keep the DB in step.
+- **REST rate limiting is built but off.** `securityMiddleware()` is ready in [`arcjet.js`](backend/src/arcjet.js) and needs enabling in `index.js`.
+- **Not load tested yet.** The fan-out design is O(subscribers per match), but there are no benchmark numbers.
 
 ## License
 
