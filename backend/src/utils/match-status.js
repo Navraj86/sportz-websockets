@@ -1,6 +1,12 @@
 import { MATCH_STATUS } from '../validation/matches.js';
 
 export function getMatchStatus(startTime, endTime, now = new Date()) {
+    // new Date(null) is the 1970 epoch, not an invalid date, so missing times must be
+    // caught before parsing or a match without times would read as "finished".
+    if (startTime == null || endTime == null) {
+        return null;
+    }
+
     const start = new Date(startTime);
     const end = new Date(endTime);
 

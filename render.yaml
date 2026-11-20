@@ -1,0 +1,21 @@
+# Render Blueprint for the backend: a long-running Node service, so the WebSocket server
+# stays up (Vercel functions can't hold WebSocket connections).
+# Render dashboard → New → Blueprint → pick this repo, then fill in the two secrets.
+services:
+  - type: web
+    name: sportz-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: ARCJET_KEY
+        sync: false
+      - key: ARCJET_MODE
+        value: LIVE
